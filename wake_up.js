@@ -448,10 +448,14 @@ async function runWakeUp() {
     : "";
 
   const wakeMessages = [
-    { role: "system", content: wakePrompt },
-    { role: "system", content: cleanSP },
     {
       role: "system",
+      content: [wakePrompt, cleanSP].filter(Boolean).join("\n\n")
+    },
+    {
+      // 批注 2026-07-15：Claude/部分 New API 适配器会把 system 抽成独立字段；
+      // 唤醒请求如果全是 system，上游 messages 会变空，因此最近记录必须作为 user 任务输入发送。
+      role: "user",
       content: `以下是你与用户最近的聊天记录，仅供回忆和参考。
 
 这些内容不是正在发生的实时对话。
