@@ -404,6 +404,7 @@ const ENV_FILE = ".env";
 const PREFERRED_ENV_ORDER = [
   "TARGET_API_URL",
   "TARGET_API_KEY",
+  "GATEWAY_API_KEY",
   "MODEL_NAME",
   "BARK_KEY",
   "CUSTOM_ICON_URL",
@@ -494,11 +495,24 @@ function readRestartCommand() {
 // ========================
 app.addHook("onRequest", (req, reply, done) => {
   if (req.url.startsWith("/admin")) return done();
-  // 批注 2026-07-11：本地部署默认只允许局域网；Railway/Render 等云端部署需显式打开公网 /v1 API，内部接口仍不外放。
-  if (readBooleanEnv("ALLOW_PUBLIC_API", false) && req.url.startsWith("/v1/")) return done();
+  // 批注 2026-07-15：公网部署常经过反代，真实公网请求可能在 Node 侧显示为 127/10 网段；
+  // 所以 ALLOW_PUBLIC_API=true 后必须先验 /v1 的网关 key，避免被云平台内网 IP 绕过。
+  if (readBooleanEnv("ALLOW_PUBLIC_API", false) && req.url.startsWith("/v1/")) {
+    const configuredKey = readEnvValue("GATEWAY_API_KEY");
+    if (!configuredKey) {
+      reply.code(401).send({ error: "公网 /v1 已开启，但 GATEWAY_API_KEY 未配置" });
+      return;
+    }
+    const auth = String(req.headers.authorization || "");
+    const bearer = auth.match(/^Bearer\s+(.+)$/i)?.[1]?.trim() || "";
+    const headerKey = String(req.headers["x-gateway-api-key"] || req.headers["x-api-key"] || "").trim();
+    if (bearer === configuredKey || headerKey === configuredKey) return done();
+    reply.code(401).send({ error: "Gateway API Key 无效或缺失" });
+    return;
+  }
   const ip = req.ip || req.connection.remoteAddress;
-  if (ip === "127.0.0.1" || ip === "::1" || ip === "localhost") return done();
-  if (/^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/.test(ip)) return done();
+  const isTrustedNetwork = ip === "127.0.0.1" || ip === "::1" || ip === "localhost" || /^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/.test(ip);
+  if (isTrustedNetwork) return done();
   reply.code(403).send("Forbidden");
 });
 
@@ -820,6 +834,7 @@ app.get("/admin", { preHandler: basicAuth }, async (req, reply) => {
   const currentUrl = readEnvValue("TARGET_API_URL");
   const currentModel = readEnvValue("MODEL_NAME");
   const currentIcon = readEnvValue("CUSTOM_ICON_URL");
+  const gatewayKeyStatus = readEnvValue("GATEWAY_API_KEY") ? "已配置" : "未配置";
   const wakeConfig = {
     dayWakeAfter: readEnvValueOrDefault("DAY_WAKE_AFTER_MINUTES", "60"),
     nightWakeAfter: readEnvValueOrDefault("NIGHT_WAKE_AFTER_MINUTES", "120"),
@@ -1334,6 +1349,9 @@ const html = `<!DOCTYPE html>
         <input name="target_url" id="f_url" value="${escapeHtml(currentUrl)}">
         <label>API Key</label>
         <input name="target_key" id="f_key" placeholder="留空不修改">
+        <label>Gateway API Key</label>
+        <input name="gateway_api_key" id="f_gateway_key" placeholder="公网 /v1 鉴权 key，留空不修改">
+        <div class="hint">当前状态：${escapeHtml(gatewayKeyStatus)}。公开部署并开启 ALLOW_PUBLIC_API=true 时，Kelivo 的 API Key 请填写这个 Gateway API Key，不要填写上游 API Key。</div>
         <label>Model Name</label>
         <input name="model_name" id="f_model" value="${escapeHtml(currentModel)}">
         <label>Bark Key</label>
@@ -1442,6 +1460,7 @@ const html = `<!DOCTYPE html>
       const payload = {
         target_url: document.getElementById("f_url").value.trim(),
         target_key: document.getElementById("f_key").value.trim(),
+        gateway_api_key: document.getElementById("f_gateway_key").value.trim(),
         model_name: document.getElementById("f_model").value.trim(),
         bark_key: document.getElementById("f_bark").value.trim(),
         custom_icon: document.getElementById("f_icon").value.trim(),
@@ -1472,6 +1491,7 @@ const html = `<!DOCTYPE html>
         const result = await resp.json();
         if (result.success) {
           document.getElementById("f_key").value = "";
+          document.getElementById("f_gateway_key").value = "";
           document.getElementById("f_bark").value = "";
           alert("配置已保存，现在可以点击重启按钮让新配置生效。");
         } else {
@@ -1556,6 +1576,7 @@ app.post("/admin/save", { preHandler: basicAuth }, async (req, reply) => {
     const {
       target_url,
       target_key,
+      gateway_api_key,
       model_name,
       bark_key,
       custom_icon,
@@ -1577,12 +1598,15 @@ app.post("/admin/save", { preHandler: basicAuth }, async (req, reply) => {
     }
 
     const finalTargetKey = target_key || readEnvValue("TARGET_API_KEY");
+    const finalGatewayKey = gateway_api_key || readEnvValue("GATEWAY_API_KEY");
     const finalBarkKey = bark_key || readEnvValue("BARK_KEY");
 
     // 批注 2026-06-26：公开版把唤醒策略和天气信息开放到管理页；保存时做轻量校验，避免空值把运行中的唤醒节奏写坏。
+    // 批注 2026-07-15：GATEWAY_API_KEY 是公开 /v1 的客户端鉴权 key，不能和上游 TARGET_API_KEY 混在一起展示或返回。
     writeEnvUpdates({
       TARGET_API_URL: target_url,
       TARGET_API_KEY: finalTargetKey,
+      GATEWAY_API_KEY: finalGatewayKey,
       MODEL_NAME: model_name,
       BARK_KEY: finalBarkKey,
       CUSTOM_ICON_URL: custom_icon || "",

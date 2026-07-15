@@ -129,6 +129,7 @@ node wake_up.js
 - 🕰️ 兼容无空格时间戳：`2026-07-15 01:23` 和 `2026-07-1501:23` 都能被 Gateway / wake-up 识别，避免消息排序、时间记忆和唤醒判断失效。
 - 🧭 `/v1/models` 改为读取配置模型：模型列表会返回 `.env` 里的 `MODEL_NAME`，不再固定显示示例模型名。
 - 📔 管理页新增 Wake Diary：`/admin` 可以只读查看 `DIARY_DIR` 下最近的 `.md` 日记文件，方便确认自动日记是否写入。
+- 🔐 公网 `/v1` 新增 Gateway API Key 鉴权：`ALLOW_PUBLIC_API=true` 时必须配置 `GATEWAY_API_KEY`，Kelivo 只需要填写这个网关 key，上游 `TARGET_API_KEY` 留在服务器内部。
 - 🧩 修复 Claude / New API 唤醒兼容：wake-up 请求不再全部使用 `system` 消息，避免部分中转站把 messages 抽空后报 `field messages is required`。
 - 🧹 收敛运行日志：默认不再打印完整 Kelivo body、转发 messages、wake prompt、最近聊天记录和模型原文，减少隐私泄漏和日志膨胀风险。
 
@@ -206,6 +207,7 @@ nano .env   # 也可直接用文本编辑器打开 .env 文件修改
 ```env
 TARGET_API_URL=https://你的API地址/v1/chat/completions
 TARGET_API_KEY=sk-你的APIKey
+GATEWAY_API_KEY=请改成随机长密码
 MODEL_NAME=你的模型
 BARK_KEY=你的Bark设备Key
 CUSTOM_ICON_URL=https://你的图标URL（可选）
@@ -495,9 +497,17 @@ http://localhost:3000/test-bark
 
 ```env
 ALLOW_PUBLIC_API=true
+GATEWAY_API_KEY=请改成随机长密码
 ```
 
-默认值是 `false`，用于保护本机/局域网部署：非管理路由只允许本机和局域网访问。云端不打开这个开关时，Kelivo 请求 `/v1/chat/completions` 可能会收到 `403 Forbidden`。
+默认值是 `false`，用于保护本机/局域网部署：非管理路由只允许本机和局域网访问。云端不打开这个开关时，Kelivo 请求 `/v1/chat/completions` 可能会收到 `403 Forbidden`。打开后，公网 `/v1/...` 会要求请求头携带 Gateway API Key。
+
+Kelivo 里这样填：
+
+- Base URL：你的 Gateway 地址，例如 `https://你的域名/v1`
+- API Key：填写 `GATEWAY_API_KEY`
+
+`TARGET_API_KEY` 是服务器访问上游模型用的密钥，不要填到 Kelivo 里，也不要发给别人。
 
 注意：`ALLOW_PUBLIC_API=true` 只开放 `/v1/...` 模型接口；`/internal/...` 仍然保持内部接口，不会被这个开关放到公网。
 
