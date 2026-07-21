@@ -743,7 +743,8 @@ function readEnvValue(key) {
     const lines = envContent.split("\n");
     for (const line of lines) {
       const trimmed = line.trim();
-      if (trimmed.startsWith(key + "=")) return trimmed.substring(key.length + 1).trim();
+      if (trimmed.startsWith(key + "=")) return trimmed.substring(key.length + 1).trim() || process.env[key] || "";
+
     }
   } catch {}
   return process.env[key] || "";
