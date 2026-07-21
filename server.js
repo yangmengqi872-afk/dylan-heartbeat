@@ -1715,6 +1715,8 @@ app.get("/test-bark", async (req, reply) => {
 // ========================
 // 启动服务
 // ========================
+const { fork } = require('child_process');
+fork(require('path').join(__dirname, 'wake_up.js'));
 app.listen({ port: PORT, host: "0.0.0.0" }, (err, address) => {
   if (err) {
     console.error(err);
