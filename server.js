@@ -1718,10 +1718,15 @@ app.get("/test-bark", async (req, reply) => {
 // ========================
 const { fork } = require('child_process');
 fork(require('path').join(__dirname, 'wake_up.js'));
-app.listen({ port: PORT, host: "0.0.0.0" }, (err, address) => {
-  if (err) {
-    console.error(err);
-    process.exit(1);
-  }
-  console.log(`✅ Gateway 运行在 ${address}`);
+
+// ⚠️ 强制绑定到 0.0.0.0，并强制打印正确的地址
+const HOST = '0.0.0.0';
+app.listen({ port: PORT, host: HOST }, (err, address) => {
+    if (err) {
+        console.error('❌ 服务启动失败:', err);
+        process.exit(1);
+    }
+    // 这里强制打印 0.0.0.0，不再依赖 address 变量
+    console.log(`✅ Gateway 运行在 http://${HOST}:${PORT}`);
+    console.log(`📡 实际监听地址: ${address}`);
 });
