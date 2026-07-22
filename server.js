@@ -532,90 +532,87 @@ app.get("/v1/models", async (req, reply) => {
 // Chat Completions
 // ========================
 app.post("/v1/chat/completions", async (req, reply) => {
-  try {
-    const body = req.body;
-    // ===== 调试日志 =====
-console.log('🔑 收到的 Authorization 头:', req.headers.authorization);
-console.log('🔑 期望的 GATEWAY_API_KEY:', process.env.GATEWAY_API_KEY);
-// ===== 调试日志结束 =====
-    // 批注 2026-07-15：公开部署时日志不能默认写入完整上下文；
-    // 这里只保留请求摘要，避免 system prompt、记忆和聊天正文进入 pm2 日志。
-    console.log(JSON.stringify({
-      event: "kelivo_request",
-      model: body?.model || "",
-      stream: body?.stream === true,
-      messages: summarizeMessagesForLog(body?.messages || [])
-    }));
+    try {
+        const body = req.body;
 
-    const kelivoMessages = body.messages || [];
-    const oldTimeline = loadTimeline();
+        // 批注 2026-07-15：公开部署时日志不写入完整上下文，只保留摘要
+        console.log(JSON.stringify({
+            event: "kelivo_request",
+            model: body?.model || "",
+            stream: body?.stream === true,
+            messages: summarizeMessagesForLog(body?.messages || [])
+        }));
 
-    const tsDB = loadTimestampDB();
-    let tsDBDirty = false;
-    for (const msg of kelivoMessages) {
-      if (msg.role === "system") continue;
-      if (msg.role === "tool") continue;
-      const ts = extractTimestamp(normalizeContentToText(msg.content));
-      if (!ts) continue;
-      const fp = makeFingerprint(msg);
-      const fpStripped = makeFingerprintStripped(msg);
-      if (!tsDB[fp]) { tsDB[fp] = ts.toISOString(); tsDBDirty = true; }
-      if (!tsDB[fpStripped]) { tsDB[fpStripped] = ts.toISOString(); tsDBDirty = true; }
-    }
-    if (tsDBDirty) saveTimestampDB(tsDB);
+        const kelivoMessages = body.messages || [];
+        const oldTimeline = loadTimeline();
 
-    const finalTimeline = buildTimeline(kelivoMessages, tsDB);
-    saveTimeline(finalTimeline);
-// ========== 转发到上游 API（支持流式/非流式） ==========
-const upstreamUrl = `${process.env.TARGET_API_URL}/chat/completions`;
-const upstreamHeaders = {
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${process.env.TARGET_API_KEY}`
-};
-
-try {
-    const response = await fetch(upstreamUrl, {
-        method: 'POST',
-        headers: upstreamHeaders,
-        body: JSON.stringify(body)
-    });
-
-    // 判断上游是否返回流式（根据请求中的 stream 字段）
-    if (body.stream === true) {
-        // ------ 流式响应 ------
-        // 设置 SSE 响应头
-        reply.raw.writeHead(200, {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive'
-        });
-
-        // 逐块转发上游数据
-        const reader = response.body.getReader();
-        try {
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                // 将数据块直接写入响应
-                reply.raw.write(value);
-            }
-        } catch (streamErr) {
-            console.error('❌ 流式转发中断:', streamErr);
-        } finally {
-            reply.raw.end();
-            reader.releaseLock();
+        const tsDB = loadTimestampDB();
+        let tsDBDirty = false;
+        for (const msg of kelivoMessages) {
+            if (msg.role === "system") continue;
+            if (msg.role === "tool") continue;
+            const ts = extractTimestamp(normalizeContentToText(msg.content));
+            if (!ts) continue;
+            const fp = makeFingerprint(msg);
+            const fpStripped = makeFingerprintStripped(msg);
+            if (!tsDB[fp]) { tsDB[fp] = ts.toISOString(); tsDBDirty = true; }
+            if (!tsDB[fpStripped]) { tsDB[fpStripped] = ts.toISOString(); tsDBDirty = true; }
         }
-        // 注意：流式处理完成后，无需再调用 reply.send()
-        return;
-    } else {
-        // ------ 非流式响应 ------
-        const data = await response.json();
-        return reply.status(response.status).send(data);
+        if (tsDBDirty) saveTimestampDB(tsDB);
+
+        const finalTimeline = buildTimeline(kelivoMessages, tsDB);
+        saveTimeline(finalTimeline);
+
+        // ========== 转发到上游 API（支持流式/非流式） ==========
+        const upstreamUrl = `${process.env.TARGET_API_URL}/chat/completions`;
+        const upstreamHeaders = {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${process.env.TARGET_API_KEY}`
+        };
+
+        try {
+            const response = await fetch(upstreamUrl, {
+                method: 'POST',
+                headers: upstreamHeaders,
+                body: JSON.stringify(body)
+            });
+
+            if (body.stream === true) {
+                // ------ 流式响应 ------
+                reply.raw.writeHead(200, {
+                    'Content-Type': 'text/event-stream',
+                    'Cache-Control': 'no-cache',
+                    'Connection': 'keep-alive'
+                });
+
+                const reader = response.body.getReader();
+                try {
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        reply.raw.write(value);
+                    }
+                } catch (streamErr) {
+                    console.error('❌ 流式转发中断:', streamErr);
+                } finally {
+                    reply.raw.end();
+                    reader.releaseLock();
+                }
+                return;
+            } else {
+                // ------ 非流式响应 ------
+                const data = await response.json();
+                return reply.status(response.status).send(data);
+            }
+        } catch (upstreamErr) {
+            console.error('❌ 上游请求失败:', upstreamErr);
+            return reply.status(500).send({ error: '上游服务不可用', detail: upstreamErr.message });
+        }
+    } catch (err) {
+        console.error('❌ 路由处理失败:', err);
+        return reply.status(500).send({ error: '内部错误' });
     }
-} catch (upstreamErr) {
-    console.error('❌ 上游请求失败:', upstreamErr);
-    return reply.status(500).send({ error: '上游服务不可用', detail: upstreamErr.message });
-}
+});
     // Kelivo 发图时 content 常是数组。默认原样透传给视觉模型；
     // 如上游不支持图片，可设置 MULTIMODAL_MODE=text 退回文本占位。
     const llmMessages = kelivoMessages
