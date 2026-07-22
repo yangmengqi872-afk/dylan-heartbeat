@@ -532,57 +532,60 @@ app.get("/v1/models", async (req, reply) => {
 // Chat Completions
 // ========================
 app.post("/v1/chat/completions", async (req, reply) => {
-    try {
-        const body = req.body;
+  try {
+    const body = req.body;
+    // ===== 调试日志 =====
+console.log('🔑 收到的 Authorization 头:', req.headers.authorization);
+console.log('🔑 期望的 GATEWAY_API_KEY:', process.env.GATEWAY_API_KEY);
+// ===== 调试日志结束 =====
+    // 批注 2026-07-15：公开部署时日志不能默认写入完整上下文；
+    // 这里只保留请求摘要，避免 system prompt、记忆和聊天正文进入 pm2 日志。
+    console.log(JSON.stringify({
+      event: "kelivo_request",
+      model: body?.model || "",
+      stream: body?.stream === true,
+      messages: summarizeMessagesForLog(body?.messages || [])
+    }));
 
-        console.log(JSON.stringify({
-            event: "kelivo_request",
-            model: body?.model || "",
-            stream: body?.stream === true,
-            messages: summarizeMessagesForLog(body?.messages || [])
-        }));
+    const kelivoMessages = body.messages || [];
+    const oldTimeline = loadTimeline();
 
-        const kelivoMessages = body.messages || [];
-        const oldTimeline = loadTimeline();
-
-        const tsDB = loadTimestampDB();
-        let tsDBDirty = false;
-        for (const msg of kelivoMessages) {
-            if (msg.role === "system") continue;
-            if (msg.role === "tool") continue;
-            const ts = extractTimestamp(normalizeContentToText(msg.content));
-            if (!ts) continue;
-            const fp = makeFingerprint(msg);
-            const fpStripped = makeFingerprintStripped(msg);
-            if (!tsDB[fp]) { tsDB[fp] = ts.toISOString(); tsDBDirty = true; }
-            if (!tsDB[fpStripped]) { tsDB[fpStripped] = ts.toISOString(); tsDBDirty = true; }
-        }
-        if (tsDBDirty) saveTimestampDB(tsDB);
-
-        const finalTimeline = buildTimeline(kelivoMessages, tsDB);
-        saveTimeline(finalTimeline);
-
-        // ---------- 转发到上游 ----------
-        const upstreamUrl = `${process.env.TARGET_API_URL}/chat/completions`;
-        const upstreamHeaders = {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${process.env.TARGET_API_KEY}`
-        };
-
-        const response = await fetch(upstreamUrl, {
-            method: 'POST',
-            headers: upstreamHeaders,
-            body: JSON.stringify(body)
-        });
-
-        const data = await response.json();
-        return reply.status(response.status).send(data);
-
-    } catch (err) {
-        console.error('❌ 路由处理失败:', err);
-        return reply.status(500).send({ error: '内部错误' });
+    const tsDB = loadTimestampDB();
+    let tsDBDirty = false;
+    for (const msg of kelivoMessages) {
+      if (msg.role === "system") continue;
+      if (msg.role === "tool") continue;
+      const ts = extractTimestamp(normalizeContentToText(msg.content));
+      if (!ts) continue;
+      const fp = makeFingerprint(msg);
+      const fpStripped = makeFingerprintStripped(msg);
+      if (!tsDB[fp]) { tsDB[fp] = ts.toISOString(); tsDBDirty = true; }
+      if (!tsDB[fpStripped]) { tsDB[fpStripped] = ts.toISOString(); tsDBDirty = true; }
     }
-});
+    if (tsDBDirty) saveTimestampDB(tsDB);
+
+    const finalTimeline = buildTimeline(kelivoMessages, tsDB);
+    saveTimeline(finalTimeline);
+// ========== 转发到上游 API ==========
+const upstreamUrl = `${process.env.TARGET_API_URL}/chat/completions`; // 假设 TARGET_API_URL 是 https://api.deepseek.com/v1
+const upstreamHeaders = {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${process.env.TARGET_API_KEY}`
+};
+
+try {
+    const response = await fetch(upstreamUrl, {
+        method: 'POST',
+        headers: upstreamHeaders,
+        body: JSON.stringify(body)
+    });
+
+    const data = await response.json();
+    return reply.status(response.status).send(data);
+} catch (upstreamErr) {
+    console.error('❌ 上游请求失败:', upstreamErr);
+    return reply.status(500).send({ error: '上游服务不可用' });
+}
     // Kelivo 发图时 content 常是数组。默认原样透传给视觉模型；
     // 如上游不支持图片，可设置 MULTIMODAL_MODE=text 退回文本占位。
     const llmMessages = kelivoMessages
