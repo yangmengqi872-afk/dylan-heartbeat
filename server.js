@@ -1,17 +1,4 @@
-// ============================================================
-// Zeabur 部署专用：直接从 process.env 读取（不依赖 .env 文件）
-// 所有敏感信息请在 Zeabur 控制台“环境变量”中配置
-// ============================================================
-console.log('🔍 环境变量检查 (启动时):');
-console.log('  GATEWAY_API_KEY:', process.env.GATEWAY_API_KEY ? '✅ 已设置' : '❌ 未设置');
-console.log('  TARGET_API_KEY:', process.env.TARGET_API_KEY ? '✅ 已设置' : '❌ 未设置');
-console.log('  MODEL_NAME:', process.env.MODEL_NAME || '❌ 未设置');
-console.log('  TARGET_API_URL:', process.env.TARGET_API_URL || '❌ 未设置');
-// ============================================================
-
-// 下面你的其他代码（Fastify 初始化等）原封不动，全部保留
-const Fastify = require("fastify");
-// ... 后面的代码不要动
+require("dotenv").config();  
 
 const Fastify = require("fastify");
 const fs = require("fs-extra");
