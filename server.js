@@ -566,7 +566,26 @@ console.log('🔑 期望的 GATEWAY_API_KEY:', process.env.GATEWAY_API_KEY);
 
     const finalTimeline = buildTimeline(kelivoMessages, tsDB);
     saveTimeline(finalTimeline);
+// ========== 转发到上游 API ==========
+const upstreamUrl = `${process.env.TARGET_API_URL}/chat/completions`; // 假设 TARGET_API_URL 是 https://api.deepseek.com/v1
+const upstreamHeaders = {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${process.env.TARGET_API_KEY}`
+};
 
+try {
+    const response = await fetch(upstreamUrl, {
+        method: 'POST',
+        headers: upstreamHeaders,
+        body: JSON.stringify(body)
+    });
+
+    const data = await response.json();
+    reply.status(response.status).send(data);
+} catch (upstreamErr) {
+    console.error('❌ 上游请求失败:', upstreamErr);
+    reply.status(500).send({ error: '上游服务不可用' });
+}
     // Kelivo 发图时 content 常是数组。默认原样透传给视觉模型；
     // 如上游不支持图片，可设置 MULTIMODAL_MODE=text 退回文本占位。
     const llmMessages = kelivoMessages
