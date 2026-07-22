@@ -535,7 +535,6 @@ app.post("/v1/chat/completions", async (req, reply) => {
     try {
         const body = req.body;
 
-        // 批注 2026-07-15：公开部署时日志不写入完整上下文，只保留摘要
         console.log(JSON.stringify({
             event: "kelivo_request",
             model: body?.model || "",
@@ -563,51 +562,22 @@ app.post("/v1/chat/completions", async (req, reply) => {
         const finalTimeline = buildTimeline(kelivoMessages, tsDB);
         saveTimeline(finalTimeline);
 
-        // ========== 转发到上游 API（支持流式/非流式） ==========
+        // ===== 非流式转发（稳定版） =====
         const upstreamUrl = `${process.env.TARGET_API_URL}/chat/completions`;
         const upstreamHeaders = {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${process.env.TARGET_API_KEY}`
         };
 
-        try {
-            const response = await fetch(upstreamUrl, {
-                method: 'POST',
-                headers: upstreamHeaders,
-                body: JSON.stringify(body)
-            });
+        const response = await fetch(upstreamUrl, {
+            method: 'POST',
+            headers: upstreamHeaders,
+            body: JSON.stringify(body)
+        });
 
-            if (body.stream === true) {
-                // ------ 流式响应 ------
-                reply.raw.writeHead(200, {
-                    'Content-Type': 'text/event-stream',
-                    'Cache-Control': 'no-cache',
-                    'Connection': 'keep-alive'
-                });
+        const data = await response.json();
+        return reply.status(response.status).send(data);
 
-                const reader = response.body.getReader();
-                try {
-                    while (true) {
-                        const { done, value } = await reader.read();
-                        if (done) break;
-                        reply.raw.write(value);
-                    }
-                } catch (streamErr) {
-                    console.error('❌ 流式转发中断:', streamErr);
-                } finally {
-                    reply.raw.end();
-                    reader.releaseLock();
-                }
-                return;
-            } else {
-                // ------ 非流式响应 ------
-                const data = await response.json();
-                return reply.status(response.status).send(data);
-            }
-        } catch (upstreamErr) {
-            console.error('❌ 上游请求失败:', upstreamErr);
-            return reply.status(500).send({ error: '上游服务不可用', detail: upstreamErr.message });
-        }
     } catch (err) {
         console.error('❌ 路由处理失败:', err);
         return reply.status(500).send({ error: '内部错误' });
