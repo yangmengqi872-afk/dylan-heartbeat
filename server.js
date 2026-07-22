@@ -581,10 +581,10 @@ try {
     });
 
     const data = await response.json();
-    reply.status(response.status).send(data);
+    return reply.status(response.status).send(data);
 } catch (upstreamErr) {
     console.error('❌ 上游请求失败:', upstreamErr);
-    reply.status(500).send({ error: '上游服务不可用' });
+    return reply.status(500).send({ error: '上游服务不可用' });
 }
     // Kelivo 发图时 content 常是数组。默认原样透传给视觉模型；
     // 如上游不支持图片，可设置 MULTIMODAL_MODE=text 退回文本占位。
