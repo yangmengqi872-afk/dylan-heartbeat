@@ -489,12 +489,12 @@ ${historyText}`
     return;
   }
 
-  const response = await fetch(process.env.TARGET_API_URL, {
+  const response = await fetch(`${process.env.TARGET_API_URL}/chat/completions`, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.TARGET_API_KEY}`
-    },
+  "Content-Type": "application/json",
+  "Authorization": `Bearer ${process.env.TARGET_API_KEY}`
+},
     body: JSON.stringify({
       model: process.env.MODEL_NAME,
       messages: wakeMessages,
