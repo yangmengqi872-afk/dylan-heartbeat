@@ -562,7 +562,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
         const finalTimeline = buildTimeline(kelivoMessages, tsDB);
         saveTimeline(finalTimeline);
 
-        // ===== 非流式转发（稳定版） =====
+        // ===== 铁稳非流式转发 =====
         const upstreamUrl = `${process.env.TARGET_API_URL}/chat/completions`;
         const upstreamHeaders = {
             'Content-Type': 'application/json',
