@@ -418,19 +418,17 @@ async function runWakeUp() {
   const messages = loadTimelineMessages();
   if (!messages) return;
 
-  const lastUserTime = getLastUserTime(messages);
-  if (!lastUserTime) {
-    console.log("未找到用户时间");
-    return;
-  }
-
+const lastUserTime = getLastUserTime(messages);
+let diffMinutes = 0;
+if (lastUserTime) {
   const now = new Date();
-  const diffMinutes = Math.floor((now - lastUserTime) / 1000 / 60);
+  diffMinutes = Math.floor((now - lastUserTime) / 1000 / 60);
+} else {
+  console.log("未提取到用户消息时间，将使用默认间隔继续唤醒流程");
+  diffMinutes = 60; // 默认一小时前，让 AI 有机会主动联系
+}
 
-  if (!shouldWake(lastUserTime)) {
-    console.log("\n暂不需要唤醒\n");
-    return;
-  }
+// 不再拦截，直接让 AI 决策
 
   const weatherContext = await fetchWeatherContext();
   const wakePrompt = buildWakePrompt(getChinaTimeString(), diffMinutes, weatherContext);
