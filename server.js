@@ -534,6 +534,10 @@ app.get("/v1/models", async (req, reply) => {
 app.post("/v1/chat/completions", async (req, reply) => {
   try {
     const body = req.body;
+    // ===== 调试日志 =====
+console.log('🔑 收到的 Authorization 头:', req.headers.authorization);
+console.log('🔑 期望的 GATEWAY_API_KEY:', process.env.GATEWAY_API_KEY);
+// ===== 调试日志结束 =====
     // 批注 2026-07-15：公开部署时日志不能默认写入完整上下文；
     // 这里只保留请求摘要，避免 system prompt、记忆和聊天正文进入 pm2 日志。
     console.log(JSON.stringify({
